@@ -4,5 +4,5 @@ let
   systems = [ ];
 in
 {
-
+  "openai-key.age".publicKeys = users;
 }
