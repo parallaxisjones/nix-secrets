@@ -1,107 +1,122 @@
-{
-  ##########################################################
-  ##  /Users/pjones/dev/nix-secrets/flake.nix
-  ##
-  ##  This Flake will:
-  ##    • Pull in agenix from GitHub
-  ##    • Define two users (pjones and parallaxis), each
-  ##      pointing at an “.pub” key on disk
-  ##    • Tell agenix that “openai-key.age” is decryptable
-  ##      by both pjones and parallaxis
-  ##    • Expose a top-level attribute set called “secrets”
-  ##      such that:
-  ##        secrets.x86_64-linux."openai-key"
-  ##        secrets.aarch64-darwin."openai-key"
-  ##      are plain-text values of the decrypted file.
-  ##
-  ##  After this, your “main” Flake can simply pull:
-  ##    inputs.nix-secrets.secrets.${system}."openai-key"
-  ##########################################################
+# /Users/pjones/dev/nix-secrets/flake.nix
 
-  description = "Private Flake that decrypts my .age-encrypted secrets using agenix";
+{
+  description = "Private Flake that decrypts my .age-encrypted secrets via agenix";
 
   inputs = {
-    # 1) We only need 'agenix' for the decryption machinery
-    agenix.url = "github:numtide/agenix";
-
-    # 2) We do not strictly need nixpkgs here, but it can be useful
-    #    if you ever want to test-building something. For purely
-    #    exposing decrypted secrets, you could omit nixpkgs.
+    # 1) Pull in nixpkgs so that agenix can pick it up automatically.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # (Optionally) if you plan to reference this Flake by name in your
-    # “main” Flake’s inputs, you could give it a name:
-    # “nix-secrets = { url = ...; }”
+    # 2) Pull in the official agenix flake, telling it to “follow”
+    #    the same nixpkgs we declared above.  This ensures that
+    #    agenix.lib.secrets (and all of agenix’s modules) show up.
+    agenix = {
+      url = "github:ryantm/agenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, agenix, nixpkgs, ... }:
+  outputs = { self, nixpkgs, agenix, ... }:
     let
-      # ───────────────────────────────────────────────────────────────
-      #  Which Nix “systems” (platforms) are we targeting?
+      # ─────────────────────────────────────────────────────────────
+      #  Which “systems” (architectures) do we support?
       #
-      #  Adjust this to whichever platforms you actually need.
+      #  Adjust this list to whichever platforms you need.
       systems = [ "x86_64-linux" "aarch64-darwin" ];
 
-      # ───────────────────────────────────────────────────────────────
-      #  Read your public keys off disk.  Make sure these paths exist.
+      # ─────────────────────────────────────────────────────────────
+      #  Read your SSH public keys from disk.  Make sure these
+      #  paths are correct on your machine!
       #
-      #  • On macOS (“pjones”), your SSH pub might live under /Users/pjones/.ssh/
-      #  • On Linux (“parallaxis”), your SSH pub might live under /home/parallaxis/.ssh/
+      #  • On macOS, your key is at /Users/pjones/.ssh/parallaxis.pub
+      #  • On Linux, your key is at /home/parallaxis/.ssh/parallaxis.pub
       #
-      #  You can substitute whatever key you’ve actually used to
-      #  encrypt “openai-key.age” (and any others).
-      pjonesPub = builtins.readFile "/Users/pjones/.ssh/parallaxis.pub";
-      paraPub  = builtins.readFile "/home/parallaxis/.ssh/parallaxis.pub";
+      pjonesPub     = builtins.readFile "/Users/pjones/.ssh/parallaxis.pub";
+      parallaxisPub = builtins.readFile "/home/parallaxis/.ssh/parallaxis.pub";
     in
     {
       ############################################################
-      ##  1) Expose all decrypted secrets under ‘secrets’:
+      ##  A) “secrets” – expose each decrypted .age file by name:
       ##
-      ##      secrets.x86_64-linux."openai-key"
-      ##      secrets.aarch64-darwin."openai-key"
+      ##     secrets.<system>."<secret-name>"  →  plaintext secret path
+      ##
+      ##  Under the hood, this calls agenix.lib.secrets{…}, and
+      ##  produces, for each system, an attribute named “openai-key”
+      ##  whose value is the store-path of the plaintext file.
       ############################################################
       secrets = agenix.lib.secrets {
         inherit systems;
 
         # ───────────────────────────────────────────────────────────
-        #  2) Define which user-IDs exist, and which public keys
-        #     they correspond to.  These user-IDs must match the
-        #     “recipient identifiers” you used when encrypting.
-        #     In your example, you encrypted “openai-key.age” with
-        #     both pjones and parallaxis.
+        #  Define each “user” (SSH identity‐name) and which public
+        #  keys it corresponds to.  These names (“pjones”, “parallaxis”)
+        #  must exactly match the recipient IDs that were used when
+        #  you ran “age -r pjones -r parallaxis -o openai-key.age …”.
         #
         users = {
-          pjones     = { publicKeys = [ pjonesPub ]; };
-          parallaxis = { publicKeys = [ paraPub ]; };
+          pjones     = { publicKeys = [ pjonesPub     ]; };
+          parallaxis = { publicKeys = [ parallaxisPub ]; };
         };
 
         # ───────────────────────────────────────────────────────────
-        #  3) Tell agenix exactly which .age files live in this
-        #     directory, and which users can decrypt each one.
-        #     The key on disk must be named exactly “openai-key.age”:
+        #  Tell agenix which .age files live in this directory, and
+        #  which users can decrypt each one.  The filename must match
+        #  exactly (“openai-key.age” → decryptable by pjones & parallaxis).
         #
         ageFiles = {
           "openai-key.age".publicKeys = [ "pjones" "parallaxis" ];
-          # If you had foo.age, bar.age, you’d add:
+          # If you add foo.age, bar.age, list them here:
           # "foo.age".publicKeys = [ "pjones" ];
           # "bar.age".publicKeys = [ "parallaxis" "pjones" ];
         };
       };
 
       ############################################################
-      ##  4) (Optional) If you ever want to build a simple “test”
-      ##     that does something with nixpkgs, you can add it:
+      ##  B) defaultPackage – pick “openai-key” whenever you run
+      ##     a bare “nix build” inside this flake root.
+      ##
+      ##  That way, instead of typing:
+      ##    nix build .#secrets.x86_64-linux."openai-key"
+      ##  you can just do:
+      ##    nix build
+      ##
+      ##  and it will decrypt “openai-key.age” for your current system.
       ############################################################
-      packages = { system }: rec {
-        default = with (import nixpkgs { inherit system; }).pkgs; stdenv.mkDerivation {
-          pname = "nix-secrets-test";
-          version = "0.1";
-          src = ./.;
-          buildPhase = ''
-            echo "Here is your decrypted secret:"
-            cat ${self.secrets.${system}."openai-key"}
-          '';
-        };
-      };
+      defaultPackage = { system }: self.secrets.${system}."openai-key";
+
+      ############################################################
+      ##  (Optional) If you want to expose more “packages” beyond
+      ##  the single default secret, you could define a `packages`
+      ##  attribute set instead of—or alongside—`defaultPackage`:
+      ##
+      ##    packages = { system }: {
+      ##      default = self.secrets.${system}."openai-key";
+      ##      # other derivations, if needed…
+      ##    };
+      ##
+      ##  But most “secrets-only” flakes simply set defaultPackage.
+      ############################################################
+      # packages = { system }: {
+      #   default = self.secrets.${system}."openai-key";
+      # };
+
+      ############################################################
+      ##  (Optional) A quick “test” derivation that prints your secret
+      ##  at build time.  Uncomment if you ever want:
+      ##    $ nix build .#packages.x86_64-linux.default
+      ############################################################
+      # packages = { system }: let
+      #   pkgs = import nixpkgs { inherit system; };
+      # in {
+      #   default = pkgs.stdenv.mkDerivation {
+      #     pname = "nix-secrets-test";
+      #     version = "0.1";
+      #     src = ./.;
+      #     buildPhase = ''
+      #       echo "Here is your decrypted openai-key for ${system}:"
+      #       cat ${self.secrets.${system}."openai-key"}
+      #     '';
+      #   };
+      # };
     };
 }
