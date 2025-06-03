@@ -1,58 +1,50 @@
 {  # ──────────────────────────────────────────────────────────────────────────
   # nix-secrets/flake.nix
   #
-  # This flake simply decrypts all .age files for either:
-  #   • x86_64-linux   (NixOS)
+  # This flake simply decrypts all .age files for:
+  #   • x86_64-linux   (NixOS / Linux)
   #   • aarch64-darwin (macOS)
   #
-  # It exposes:
-  #   secrets.age.<system>.<“openai-key”|“darwin-syncthing-cert”|…>
+  # It will export:
+  #   outputs.age.<system>."<secret-name>" = (the decrypted text file path)
   #
   description = "Private flake that decrypts my .age‐encrypted secrets";
 
   inputs = {
-    # We need agenix to do the actual .age decryption
+    # We only need agenix to do the age‐decryption dance
     agenix.url = "github:numtide/agenix";
   };
 
   outputs = { self, agenix, ... }: let
     # ────────────────────────────────────────────────────────────────────────
-    # 1) Replace these with the *contents* of your ~/.ssh/*.pub files.
-    #    On macOS (“pjones”) you encrypted with /Users/pjones/.ssh/parallaxis.pub
-    #    On NixOS (“parallaxis”) you encrypted with /home/parallaxis/.ssh/parallaxis.pub
+    # 1) Point to the *contents* of your public‐key files.
+    #    Make sure these paths are readable by the user who runs `nix build`.
     #
     pjonesPublicKey     = builtins.readFile "/Users/pjones/.ssh/parallaxis.pub";
     parallaxisPublicKey = builtins.readFile "/home/parallaxis/.ssh/parallaxis.pub";
 
     # ────────────────────────────────────────────────────────────────────────
-    # 2) Which platforms do we want to decrypt for?
+    # 2) Declare exactly which machines (Nix “systems”) we want to build for.
     #
     systems = [ "x86_64-linux" "aarch64-darwin" ];
   in
   {
+    # ────────────────────────────────────────────────────────────────────────
+    # 3) In `outputs.age` we run agenix.lib.secrets { … } exactly once.
+    #
     age = agenix.lib.secrets {
       inherit systems;
 
+      # “users” is a set of labels → publicKeys arrays
       users = {
-        pjones     = { publicKeys = [ pjonesPublicKey ]; };
+        pjones     = { publicKeys = [ pjonesPublicKey     ]; };
         parallaxis = { publicKeys = [ parallaxisPublicKey ]; };
       };
 
+      # “ageFiles” must list every *.age under this repo that you want to decrypt
       ageFiles = {
-        # On macOS: pjones can decrypt “darwin-syncthing-cert.age”
-        # "darwin-syncthing-cert.age".publicKeys = [ pjones ];
-        # "darwin-syncthing-key.age".publicKeys  = [ pjones ];
-
-        # On NixOS:   parallaxis can decrypt “nixos-syncthing-cert.age”
-        # "nixos-syncthing-cert.age".publicKeys = [ parallaxis ];
-        # "nixos-syncthing-key.age".publicKeys  = [ parallaxis ];
-
-        # Shared across both machines: both pjones and parallaxis can decrypt
-        "openai-key.age".publicKeys            = [ pjones parallaxis ];
-
-        # GitHub keys (if you want them later):
-        # "github-ssh-key.age".publicKeys     = [ pjones ];
-        # "github-signing-key.age".publicKeys = [ pjones ];
+        # both machines decrypt “openai-key.age”:
+        "openai-key.age".publicKeys = [ "pjones" "parallaxis" ];
       };
     };
   }
