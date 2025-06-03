@@ -1,37 +1,35 @@
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │  nix-secrets/flake.nix                                                 │
-# └─────────────────────────────────────────────────────────────────────────┘
-{
-  description = "Private flake that just decrypts all of my .age secrets.";
+{  # ──────────────────────────────────────────────────────────────────────────
+  # nix-secrets/flake.nix
+  #
+  # This flake simply decrypts all .age files for either:
+  #   • x86_64-linux   (NixOS)
+  #   • aarch64-darwin (macOS)
+  #
+  # It exposes:
+  #   secrets.age.<system>.<“openai-key”|“darwin-syncthing-cert”|…>
+  #
+  description = "Private flake that decrypts my .age‐encrypted secrets";
 
-  # We only need agenix as an input here:
   inputs = {
-    agenix.url = "github:numtide/agenix";  # or "github:ryantm/agenix"
-    # (no need for nixpkgs here, since agenix itself will pull one in)
+    # We need agenix to do the actual .age decryption
+    agenix.url = "github:numtide/agenix";
   };
 
-  outputs = { self, agenix, ... }:
-
-  let
-    # ──────────────────────────────────────────────────────────────────────
-    # 1) Replace these with the actual contents of each user's `.pub` file:
-    #
-    #    On macOS, you encrypt for “pjones” using /Users/pjones/.ssh/parallaxis.pub  
-    #    On NixOS, you encrypt for “parallaxis” using   /home/parallaxis/.ssh/parallaxis.pub
+  outputs = { self, agenix, ... }: let
+    # ────────────────────────────────────────────────────────────────────────
+    # 1) Replace these with the *contents* of your ~/.ssh/*.pub files.
+    #    On macOS (“pjones”) you encrypted with /Users/pjones/.ssh/parallaxis.pub
+    #    On NixOS (“parallaxis”) you encrypted with /home/parallaxis/.ssh/parallaxis.pub
     #
     pjonesPublicKey     = builtins.readFile "/Users/pjones/.ssh/parallaxis.pub";
-    # parallaxisPublicKey = builtins.readFile "/home/parallaxis/.ssh/parallaxis.pub";
+    parallaxisPublicKey = builtins.readFile "/home/parallaxis/.ssh/parallaxis.pub";
 
-    # ──────────────────────────────────────────────────────────────────────
-    # 2) Which platforms do we need to expose? (so that each machine only
-    #    tries to decrypt the secrets it actually needs)
+    # ────────────────────────────────────────────────────────────────────────
+    # 2) Which platforms do we want to decrypt for?
     #
     systems = [ "x86_64-linux" "aarch64-darwin" ];
   in
-
   {
-    # ──────────────────────────────────────────────────────────────────────
-    # 3) Run agenix.lib.secrets to decrypt all the “.age” blobs in this repo:
     age = agenix.lib.secrets {
       inherit systems;
 
@@ -41,20 +39,20 @@
       };
 
       ageFiles = {
-        # On macOS, “pjones” can decrypt the darwin‐*.age files;
-        # On NixOS, “parallaxis” can decrypt the nixos‐*.age files;
-        # "darwin-syncthing-cert.age".publicKeys   = [ pjones ];
-        # "darwin-syncthing-key.age".publicKeys    = [ pjones ];
+        # On macOS: pjones can decrypt “darwin-syncthing-cert.age”
+        # "darwin-syncthing-cert.age".publicKeys = [ pjones ];
+        # "darwin-syncthing-key.age".publicKeys  = [ pjones ];
 
-        # "nixos-syncthing-cert.age".publicKeys    = [ parallaxis ];
-        # "nixos-syncthing-key.age".publicKeys     = [ parallaxis ];
+        # On NixOS:   parallaxis can decrypt “nixos-syncthing-cert.age”
+        # "nixos-syncthing-cert.age".publicKeys = [ parallaxis ];
+        # "nixos-syncthing-key.age".publicKeys  = [ parallaxis ];
 
-        # “openai-key.age” should be readable on both machines:
-        "openai-key.age".publicKeys              = [ pjones parallaxis ];
+        # Shared across both machines: both pjones and parallaxis can decrypt
+        "openai-key.age".publicKeys            = [ pjones parallaxis ];
 
-        # Your GitHub‐SSH key only needs to be decrypted on macOS:
-        # "github-ssh-key.age".publicKeys          = [ pjones ];
-        # "github-signing-key.age".publicKeys      = [ pjones ];
+        # GitHub keys (if you want them later):
+        # "github-ssh-key.age".publicKeys     = [ pjones ];
+        # "github-signing-key.age".publicKeys = [ pjones ];
       };
     };
   }
