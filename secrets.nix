@@ -5,4 +5,5 @@ let
 in
 {
   "openai-key.age".publicKeys = users;
+  "smb-credentials.age".publicKeys = users;
 }
