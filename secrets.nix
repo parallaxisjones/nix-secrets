@@ -7,6 +7,7 @@ in
 {
   "openai-key.age".publicKeys = users;
   "smb-credentials.age".publicKeys = users;
+  "protonvpn-wireguard.age".publicKeys = users;
   "anthropic-api-key.age".publicKeys = users;
   "datadog-api-key.age".publicKeys = users;
   "datadog-app-key.age".publicKeys = users;
